@@ -1,0 +1,80 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://k8s.foo.com:30191/loki/api/v1/push
+
+scrape_configs:
+  - job_name: test-nginx-logs
+    static_configs:
+      - labels:
+          job: 'test-k8s-pod-nginx-logs'
+          __path__: /tmp/logs/*.log
+    pipeline_stages:
+      - match:
+          selector: '{job="test-k8s-pod-nginx-logs"}'
+          stages:
+            - regex:
+                expression: '^.*F (?P<remote_addr>[\w\.]+) - (?P<remote_user>[^ ]*) \[(?P<time_local>.*)\] "(?P<method>[^ ]*) (?P<request>[^ ]*) (?P<protocol>[^ ]*)" (?P<status>[\d]+) (?P<body_bytes_sent>[\d]+) "(?P<http_referer>[^"]*)" "(?P<http_user_agent>[^"]*)"?'
+            - labels:
+                #remote_addr:
+                #time_local:
+                status:
+                method:
+                #request:
+  - job_name: test-app-logs
+    static_configs:
+      - labels:
+          job: 'test-app-logs'
+          __path__: /tmp/logs/app-*/*.log
+    pipeline_stages:
+      - match:
+          selector: '{job="test-app-logs"}'
+          stages:
+            - regex:
+                source: filename
+                expression: '(?:logs)/(?P<pod_name>\S+?)/'
+            - regex: # for k8s Deployment Pods
+                source: pod_name
+                expression: '^(?P<pod_collection>.+)-[^-]+$'
+            - regex:
+                expression: '^(?P<year_month>\S+?)-(?P<days>[\d]{1,2})\s+(?P<time>[0-9:.]+?)\s+(?P<level>[A-Z]+?)\s+'
+            - labels:
+                pod_name:
+                level:
+                pod_collection:
+            - multiline: # 多行阶段将多行日志进行合并
+                # 识别时间戳作为多行日志的第一行，注意这里字符串应该使用单引号。
+                firstline: '^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}:\d{2}'
+                max_wait_time: 3s
+            - drop:
+                expression: ".*hello:.*"
+            # 删除24小时以前的DEBUG和TRACE日志
+            - drop:
+                older_than: 24h
+                source: "level"
+                value: "(TRACE|trace|DEBUG|debug)"
+                drop_counter_reason: "debug_line_too_old"
+            - metrics:
+                # 定义错误日志指标
+                total_error_logs:
+                  prefix: 'promtail_custom_'
+                  source: level
+                  config:
+                    action: inc
+                    value: 'ERROR'
+                  description: 'Total error logs'
+                  type: Counter
+                # 定义警告日志指标
+                total_warn_logs:
+                  prefix: 'promtail_custom_'
+                  source: level
+                  config:
+                    action: inc
+                    value: 'WARN'
+                  description: 'Total warning logs'
+                  type: Counter

@@ -1,0 +1,19 @@
+version: '2'
+
+services:
+  postgresql:
+    image: 'registry.cn-hangzhou.aliyuncs.com/kennylee/postgresql:12.4'
+    container_name: "postgresql"
+    ports:
+      - '5432:5432'
+    volumes:
+      - './data/data:/bitnami/postgresql'
+      - './data/conf:/bitnami/postgresql/conf/'
+    environment:
+      - POSTGRESQL_PASSWORD=password123456
+    restart: on-failure
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '12m'
+        max-file: '5'
